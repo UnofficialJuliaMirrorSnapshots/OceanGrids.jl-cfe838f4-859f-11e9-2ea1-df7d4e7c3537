@@ -70,15 +70,22 @@ struct OceanCurvilinearGrid <: OceanGrid
 end
 
 const TU = AbstractArray{<:Quantity}
+const T1 = AbstractArray{<:Number}
 
 """
-    OceanGrid(elon::T, elat::U, edepth::V; R=upreferred(6371.0u"km")) where {T<:TU, U<:TU, V<:TU}
+    OceanGrid(elon::T, elat::U, edepth::V; R=6371.0u"km") where {T<:TU, U<:TU, V<:TU}
 
 Returns an `OceanRectilinearGrid` with boxes whose edges are defined by the
 `elon`, `elat`, and `edepth` vectors.
 The globe radius can be changed with the keyword `R` (default value 6371 km)
 """
-function OceanGrid(elon::T, elat::U, edepth::V; R=upreferred(6371.0u"km")) where {T<:TU, U<:TU, V<:TU}
+function OceanGrid(elon::TU, elat::TU, edepth::TU; R=6371.0u"km")
+    # convert to fixed degrees and meters
+    R = R |> u"m"
+    edepth = edepth .|> u"m"
+    elat = elat .|> u"°"
+    edon = elon .|> u"°"
+    # δ objects
     nlon, nlat, ndepth = length(elon) - 1, length(elat) - 1, length(edepth) - 1
     nboxes = nlon * nlat * ndepth
     lon = edges_to_centers(elon)
@@ -91,7 +98,6 @@ function OceanGrid(elon::T, elat::U, edepth::V; R=upreferred(6371.0u"km")) where
     depth_top = cumsum(δdepth) - δdepth
     depth_top_3D = repeat(reshape(depth_top, (1,1,ndepth)), outer=(nlat,nlon,1))
     # lat objects
-    R = R |> u"m" # convert to meters
     lat_3D = repeat(reshape(lat, (nlat,1,1)), outer=(1,nlon,ndepth))
     δy = R * δlat ./ 360u"°"
     δy_3D = repeat(reshape(δy, (nlat,1,1)), outer=(1,nlon,ndepth))
@@ -126,6 +132,36 @@ function OceanGrid(elon::T, elat::U, edepth::V; R=upreferred(6371.0u"km")) where
                      ndepth,
                      nboxes
                     )
+end
+
+# Convert units in case not provided
+function OceanGrid(elon::TU, elat::TU, edepth::T1; R=6371.0u"km")
+    @warn "`edepth` provided without units — assuming meters"
+    return OceanGrid(elon, elat, edepth * u"m"; R=R)
+end
+function OceanGrid(elon::T1, elat::TU, edepth::TU; R=6371.0u"km")
+    @warn "`elon` provided without units — assuming degrees"
+    return OceanGrid(elon * u"°", elat, edepth; R=R)
+end
+function OceanGrid(elon::TU, elat::T1, edepth::TU; R=6371.0u"km")
+    @warn "`elat` provided without units — assuming degrees"
+    return OceanGrid(elon, elat * u"°", edepth; R=R)
+end
+function OceanGrid(elon::T1, elat::T1, edepth::TU; R=6371.0u"km")
+    @warn "`elat` and `elon` provided without units — assuming s"
+    return OceanGrid(elon * u"°", elat * u"°", edepth; R=R)
+end
+function OceanGrid(elon::T1, elat::T1, edepth::T1; R=6371.0u"km")
+    @warn "`elat`, `elon`, and `edepth` provided without units ming degrees and meters"
+    return OceanGrid(elon * u"°", elat * u"°", edepth * u"m"; R=R)
+end
+function OceanGrid(elon::TU, elat::T1, edepth::T1; R=6371.0u"km")
+    @warn "`elat` and `edepth` provided without units — assuminees and meters"
+    return OceanGrid(elon, elat * u"°", edepth * u"m"; R=R)
+end
+function OceanGrid(elon::T1, elat::TU, edepth::T1; R=6371.0u"km")
+    @warn "`elon` and `edepth` provided without units — assuming degrees and meters"
+    return OceanGrid(elon * u"°", elat, edepth * u"m"; R=R)
 end
 
 edges_to_centers(x::Vector) = 0.5 * (x[1:end-1] + x[2:end])
@@ -214,6 +250,13 @@ Size of the grid.
 """
 Base.size(g::OceanGrid) = g.nlat, g.nlon, g.ndepth
 
+"""
+    Base.length(g::OceanGrid)
+
+Size of the grid.
+"""
+Base.length(g::OceanGrid) = g.nlat * g.nlon * g.ndepth
+
 function Base.show(io::IO, b::OceanGridBox)
     println("OceanGridBox at $(b.I):")
     println("  location: $(b.lat)N, $(b.lon)E")
@@ -232,6 +275,9 @@ function Base.iterate(g::OceanGrid, i)
         return box(g::OceanGrid, i+1), i+1
     end
 end
+
+Base.isequal(g₁::T, g₂::T) where {T<:OceanGrid} = prod([getfield(g₁,f) == getfield(g₂,f) for f in fieldnames(T)])
+Base.:(==)(g₁::T, g₂::T) where {T<:OceanGrid} = isequal(g₁, g₂)
 
 export OceanGrid, OceanCurvilinearGrid, OceanRectilinearGrid, box, OceanGridBox
 
